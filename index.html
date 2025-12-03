@@ -1,134 +1,155 @@
 <!doctype html>
 <html lang="tr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Haxball-benzeri Oyun (HTML5)</title>
-  <style>
-    html, body {
-      height: 100%;
-      margin: 0;
-      background: #0b1220;
-      color: #fff;
-      font-family: Arial, sans-serif;
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Haxball-benzeri Oyun (HTML5) - Online</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: #0b1220;
+      color: #fff;
+      font-family: Arial, sans-serif;
+    }
+
+    #game {
+      display: block;
+      margin: 0 auto;
+      background: #10304a;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
+    }
+
+    #ui {
+      width: 900px;
+      margin: 12px auto;
+      text-align: center;
+    }
+
+    button {
+      padding: 8px 12px;
+      margin: 6px;
+      font-size: 16px;
+      cursor: pointer;
+      border: none;
+      border-radius: 4px;
+      background: #58a6ff;
+      color: #0b1220;
+      transition: background 0.3s;
+    }
+    button:hover {
+      background: #79b7ff;
+    }
+
+    h2 {
+      font-size: 24px;
+    }
+    
+    #score {
+      font-size: 24px;
+      margin: 12px;
+    }
+
+    #roomIdInput {
+      padding: 8px;
+      margin: 6px;
+      font-size: 16px;
+      border: none;
+      border-radius: 4px;
+      width: 150px;
+      background: #1e3a5f;
+      color: #fff;
+    }
+
+    #status {
+      color: #ff6b6b;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+    .supershot-ready {
+        color: #70ff70;
+        font-weight: bold;
+    }
+    .supershot-cooldown {
+        color: #ffa07a;
     }
 
-    #game {
-      display: block;
-      margin: 0 auto;
-      background: #10304a;
-      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
-    }
-
-    #ui {
-      width: 900px;
-      margin: 12px auto;
-      text-align: center;
-    }
-
-    button {
-      padding: 8px 12px;
-      margin: 6px;
-      font-size: 16px;
-      cursor: pointer;
-    }
-
-    h2 {
-      font-size: 24px;
-    }
-
-    #score {
-      font-size: 24px;
-      margin: 12px;
-    }
-
-  </style>
+  </style>
 </head>
 <body>
 
-  <div id="ui">
-    <h2>Haxball-benzeri Oyun — Yerel 2 Oyuncu (WASD / Ok Tuşları)</h2>
-    <div>1. Oyuncu: W A S D | 2. Oyuncu: ↑ ← ↓ →</div>
-    <div id="score">0 — 0</div>
-    <button id="restart">Yeniden Başlat</button>
-    <button id="resetScores">Skorları Sıfırla</button>
-  </div>
+  <div id="ui">
+    <h2>Haxball-benzeri Oyun — Çevrimiçi</h2>
+    
+    <div id="room-setup">
+      <input type="text" id="roomIdInput" placeholder="Oda ID Girin">
+      <button id="createRoom">Oda Kur</button>
+      <button id="joinRoom">Odaya Katıl</button>
+    </div>
+    <div id="status">Sunucuya bağlanıyor...</div>
+     <div id="supershot-status" style="display:none; margin-top: 10px;">Süper Vuruş: <span id="supershot-state">Yükleniyor...</span></div>
 
-  <canvas id="game" width="900" height="520"></canvas>
 
-  <script>
+    <div id="game-controls" style="display:none;">
+      <div id="score">0 — 0</div>
+      <button id="restart">Yeniden Başlat</button>
+      <button id="resetScores">Skorları Sıfırla</button>
+    </div>
+  </div>
+
+  <canvas id="game" width="900" height="520"></canvas>
+
+    <script src="/socket.io/socket.io.js"></script> 
+
+  <script>
     // Canvas ve context tanımlamaları
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
     const W = canvas.width, H = canvas.height;
 
-    // Oyun ayarları
+    // Oyun ayarları (Çoğu sunucu tarafından yönetilecek)
     const DT = 1 / 60;
     const PLAYER_RADIUS = 18;
     const BALL_RADIUS = 12;
-    const PLAYER_MAX_SPEED = 370;
-    const PLAYER_ACCEL = 2200;
-    const BALL_FRICTION = 0.995;
-    const BALL_MAX_SPEED = 1200;
     let scores = [0, 0];
+    
+    // YENİ: Kontrol tuşları (iki oyuncu da aynı tuşları kullanacak, sunucu hangisinin hangi tuşa bastığını ayıracak)
+    const PLAYER_CONTROLS = {
+        up: 'w',
+        down: 's',
+        left: 'a',
+        right: 'd',
+        supershot: ' ' // Boşluk tuşu (Spacebar)
+    };
 
     // Vektör yardımcı fonksiyonlar
     function v(x = 0, y = 0) { return { x, y }; }
-    function add(a, b) { return { x: a.x + b.x, y: a.y + b.y }; }
-    function sub(a, b) { return { x: a.x - b.x, y: a.y - b.y }; }
-    function mul(a, s) { return { x: a.x * s, y: a.y * s }; }
     function len(a) { return Math.hypot(a.x, a.y); }
-    function norm(a) { const L = len(a) || 1; return { x: a.x / L, y: a.y / L }; }
 
-    // Oyuncu sınıfı
+    // Oyuncu sınıfı - SADECE ÇİZİM İÇİN KULLANILACAK
     class Player {
-      constructor(x, y, keys, color) {
+      constructor(x, y, color) {
         this.pos = v(x, y);
-        this.vel = v();
         this.radius = PLAYER_RADIUS;
-        this.keys = keys;
         this.color = color;
-        this.idle = false;
+        this.isSuperShooting = false; // Supershot animasyon/görsel efekt için
       }
-
-      update(dt, input) {
-        let acc = v();
-        if (input[this.keys.up]) acc.y -= 1;
-        if (input[this.keys.down]) acc.y += 1;
-        if (input[this.keys.left]) acc.x -= 1;
-        if (input[this.keys.right]) acc.x += 1;
-        if (acc.x !== 0 || acc.y !== 0) {
-          acc = norm(acc);
-          acc = mul(acc, PLAYER_ACCEL);
-          this.vel.x += acc.x * dt;
-          this.vel.y += acc.y * dt;
-        } else {
-          this.vel.x *= 0.93;
-          this.vel.y *= 0.93;
-        }
-        const speed = len(this.vel);
-        if (speed > PLAYER_MAX_SPEED) {
-          this.vel = mul(norm(this.vel), PLAYER_MAX_SPEED);
-        }
-        this.pos.x += this.vel.x * dt;
-        this.pos.y += this.vel.y * dt;
-        this.handleWallCollision();
-      }
-
-      handleWallCollision() {
-        const r = this.radius;
-        if (this.pos.x < r) { this.pos.x = r; this.vel.x *= -0.3; }
-        if (this.pos.x > W - r) { this.pos.x = W - r; this.vel.x *= -0.3; }
-        if (this.pos.y < r) { this.pos.y = r; this.vel.y *= -0.3; }
-        if (this.pos.y > H - r) { this.pos.y = H - r; this.vel.y *= -0.3; }
-      }
-
+      
       draw(ctx) {
         ctx.beginPath();
+        // Süper Vuruş anında oyuncuyu parlatabiliriz (görsel feedback)
+        if (this.isSuperShooting) {
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#fff';
+        }
         ctx.fillStyle = this.color;
         ctx.arc(this.pos.x, this.pos.y, this.radius, 0, Math.PI * 2);
         ctx.fill();
         ctx.closePath();
+        
+        ctx.shadowBlur = 0; // Gölgeyi kapat
+        
+        // Göz/Işık çizimi
         ctx.fillStyle = '#fff';
         ctx.beginPath();
         ctx.arc(this.pos.x - this.radius / 4, this.pos.y - this.radius / 4, 3, 0, Math.PI * 2);
@@ -136,156 +157,206 @@
       }
     }
 
-    // Top sınıfı
+    // Top sınıfı - SADECE ÇİZİM İÇİN KULLANILACAK
     class Ball {
       constructor(x, y) {
         this.pos = v(x, y);
-        this.vel = v();
         this.radius = BALL_RADIUS;
+        this.isSupershotBall = false; // Topun Süper Vuruş anında parlaması için
       }
-
-      update(dt) {
-        this.pos.x += this.vel.x * dt;
-        this.pos.y += this.vel.y * dt;
-        this.vel.x *= BALL_FRICTION;
-        this.vel.y *= BALL_FRICTION;
-        const r = this.radius;
-        if (this.pos.x < r) { this.pos.x = r; this.vel.x *= -0.9; }
-        if (this.pos.x > W - r) { this.pos.x = W - r; this.vel.x *= -0.9; }
-        if (this.pos.y < r) { this.pos.y = r; this.vel.y *= -0.9; }
-        if (this.pos.y > H - r) { this.pos.y = H - r; this.vel.y *= -0.9; }
-        const s = len(this.vel);
-        if (s > BALL_MAX_SPEED) this.vel = mul(norm(this.vel), BALL_MAX_SPEED);
-      }
-
+      
       draw(ctx) {
         ctx.beginPath();
         ctx.fillStyle = '#ffd27f';
+        
+        // Süper Vuruş anında topu parlat
+        if (this.isSupershotBall) {
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#ff6b6b';
+        }
+
         ctx.arc(this.pos.x, this.pos.y, this.radius, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = '#b37b2f';
         ctx.stroke();
+        
+        ctx.shadowBlur = 0; // Gölgeyi kapat
       }
     }
 
     // Oyuncu ve top nesneleri
-    const p1 = new Player(W * 0.2, H / 2, { up: 'w', down: 's', left: 'a', right: 'd' }, '#58a6ff');
-    const p2 = new Player(W * 0.8, H / 2, { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' }, '#ff6b6b');
+    const p1 = new Player(W * 0.2, H / 2, '#58a6ff');
+    const p2 = new Player(W * 0.8, H / 2, '#ff6b6b');
     const ball = new Ball(W / 2, H / 2);
 
-    // Kontroller
-    const input = {};
-    window.addEventListener('keydown', e => { input[e.key] = true; });
-    window.addEventListener('keyup', e => { input[e.key] = false; });
+    // ===================================================================
+    // 📢 ÇEVRİMİÇİ OYUN MANTIĞI VE SOCKET.IO BAĞLANTISI 
+    // ===================================================================
 
-    // Çarpışma hesaplamaları
-    function resolveCircleCollision(a, b) {
-      const d = sub(b.pos, a.pos);
-      const dist = len(d);
-      const minDist = a.radius + b.radius;
-      if (dist === 0) return;
-      if (dist < minDist) {
-        const overlap = minDist - dist;
-        const n = { x: d.x / dist, y: d.y / dist };
-        a.pos.x -= n.x * overlap * 0.5;
-        a.pos.y -= n.y * overlap * 0.5;
-        b.pos.x += n.x * overlap * 0.5;
-        b.pos.y += n.y * overlap * 0.5;
-        const rel = sub(b.vel, a.vel);
-        const relAlongN = rel.x * n.x + rel.y * n.y;
-        if (relAlongN > 0) return;
-        const impulse = -(1.8) * relAlongN;
-        const impulseVec = mul(n, impulse);
-        a.vel.x -= impulseVec.x * 0.5;
-        a.vel.y -= impulseVec.y * 0.5;
-        b.vel.x += impulseVec.x * 0.5;
-        b.vel.y += impulseVec.y * 0.5;
-      }
-    }
+    const socket = io(); 
+    let currentRoomId = null;
+    let isGameRunning = false;
+    let isPlayer1 = false;
+    
+    // DOM Elementleri
+    const input = {}; 
+    const statusDiv = document.getElementById('status');
+    const gameControlsDiv = document.getElementById('game-controls');
+    const supershotStatusDiv = document.getElementById('supershot-status');
+    const supershotStateSpan = document.getElementById('supershot-state');
 
-    function playerBallCollision(player, ball) {
-      const d = sub(ball.pos, player.pos);
-      const dist = len(d);
-      const minDist = player.radius + ball.radius;
-      if (dist < minDist && dist > 0) {
-        const n = { x: d.x / dist, y: d.y / dist };
-        const overlap = minDist - dist;
-        ball.pos.x += n.x * overlap * 1.02;
-        ball.pos.y += n.y * overlap * 1.02;
-        const relative = sub(ball.vel, player.vel);
-        const speedAlong = relative.x * n.x + relative.y * n.y;
-        const kick = 1.6;
-        const added = mul(n, player.idle ? 200 : (len(player.vel) * kick + 200));
-        ball.vel.x = player.vel.x * 0.6 + added.x;
-        ball.vel.y = player.vel.y * 0.6 + added.y;
-        if (len(ball.vel) > BALL_MAX_SPEED) ball.vel = mul(norm(ball.vel), BALL_MAX_SPEED);
-      }
-    }
+    // Sunucu Olayları Dinleniyor
+    socket.on('connect', () => {
+        statusDiv.innerText = 'Sunucuya bağlandı. Oda kurun veya katılın.';
+    });
 
-    // Kale kontrolü
-    const GOAL_W = 180;
-    const GOAL_H = 120;
-    function checkGoal() {
-      if (ball.pos.x - ball.radius <= 0) {
-        const y = ball.pos.y;
-        if (y > (H - GOAL_H) / 2 && y < (H + GOAL_H) / 2) {
-          scores[1]++;
-          updateScoreUI();
-          resetPositions();
-          return true;
+    socket.on('roomCreated', (roomId) => {
+        currentRoomId = roomId;
+        isPlayer1 = true;
+        statusDiv.innerText = `Oda kuruldu: ${roomId}. WASD ve BOŞLUK (Süper Vuruş) kullanacaksın. Arkadaşını bekle...`;
+        document.getElementById('roomIdInput').value = roomId;
+    });
+
+    socket.on('roomJoined', (roomId) => {
+        currentRoomId = roomId;
+        isPlayer1 = false; 
+        statusDiv.innerText = `Odaya katıldınız: ${roomId}. WASD ve BOŞLUK (Süper Vuruş) kullanacaksın. Rakip bekleniyor...`;
+    });
+
+    socket.on('gameStart', (playerAssignment) => {
+        isGameRunning = true;
+        isPlayer1 = playerAssignment.playerIndex === 0;
+        statusDiv.innerText = `OYUN BAŞLADI! Sen ${isPlayer1 ? '1. Oyuncusun' : '2. Oyuncusun'}. WASD/BOŞLUK ile oyna.`;
+        gameControlsDiv.style.display = 'block';
+        supershotStatusDiv.style.display = 'block';
+        document.getElementById('room-setup').style.display = 'none';
+        requestAnimationFrame(loop); 
+    });
+
+    socket.on('gameStateUpdate', (gameState) => {
+        if (isGameRunning) {
+            // Pozisyonları güncelle
+            p1.pos.x = gameState.p1.pos.x;
+            p1.pos.y = gameState.p1.pos.y;
+            p2.pos.x = gameState.p2.pos.x;
+            p2.pos.y = gameState.p2.pos.y;
+            ball.pos.x = gameState.ball.pos.x;
+            ball.pos.y = gameState.ball.pos.y;
+            
+            // Süper Vuruş Görsel Durumu Güncelle (Ani Vuruş Görseli için)
+            p1.isSuperShooting = gameState.p1.isSuperShooting;
+            p2.isSuperShooting = gameState.p2.isSuperShooting;
+            ball.isSupershotBall = gameState.ball.isSupershotBall;
+
+            scores[0] = gameState.scores[0];
+            scores[1] = gameState.scores[1];
+            updateScoreUI();
         }
-      }
-      if (ball.pos.x + ball.radius >= W) {
-        const y = ball.pos.y;
-        if (y > (H - GOAL_H) / 2 && y < (H + GOAL_H) / 2) {
-          scores[0]++;
-          updateScoreUI();
-          resetPositions();
-          return true;
+    });
+    
+    socket.on('superShotReady', (data) => {
+        // Sadece kendi durumumuzu güncelleyelim
+        const localPlayer = isPlayer1 ? 0 : 1;
+        if (data.playerIndex === localPlayer) {
+            supershotStateSpan.innerText = 'HAZIR!';
+            supershotStateSpan.className = 'supershot-ready';
         }
-      }
-      return false;
-    }
+    });
 
+    socket.on('superShotCooldown', (data) => {
+        const localPlayer = isPlayer1 ? 0 : 1;
+        if (data.playerIndex === localPlayer) {
+            supershotStateSpan.innerText = 'Yükleniyor (5sn)...';
+            supershotStateSpan.className = 'supershot-cooldown';
+        }
+    });
+
+    socket.on('gameReset', () => {
+        statusDiv.innerText = 'GOOLL!! Oyun Sıfırlandı!';
+    });
+    
+    socket.on('error', (message) => {
+        statusDiv.innerText = `Hata: ${message}`;
+        gameControlsDiv.style.display = 'none';
+        supershotStatusDiv.style.display = 'none';
+        document.getElementById('room-setup').style.display = 'block';
+    });
+
+    // Kontroller: Tuş basışlarını SADECE sunucuya iletiyoruz
+    window.addEventListener('keydown', e => { 
+        // Tuşu küçük harfe çevir
+        const key = e.key.toLowerCase(); 
+        const isControlKey = Object.values(PLAYER_CONTROLS).includes(key);
+
+        if (isControlKey && !input[key]) {
+            input[key] = true; 
+            if (currentRoomId && isGameRunning) {
+                socket.emit('playerInput', { roomId: currentRoomId, key: key, pressed: true });
+            }
+        }
+    });
+
+    window.addEventListener('keyup', e => { 
+        const key = e.key.toLowerCase(); 
+        
+        if (input[key]) {
+            input[key] = false; 
+            if (currentRoomId && isGameRunning) {
+                socket.emit('playerInput', { roomId: currentRoomId, key: key, pressed: false });
+            }
+        }
+    });
+
+    // UI Butonlarına Socket.IO Mantığı
+    document.getElementById('createRoom').addEventListener('click', () => {
+        const newRoomId = Math.random().toString(36).substring(2, 6).toUpperCase(); 
+        document.getElementById('roomIdInput').value = newRoomId;
+        socket.emit('createRoom', newRoomId);
+    });
+
+    document.getElementById('joinRoom').addEventListener('click', () => {
+        const roomId = document.getElementById('roomIdInput').value.trim().toUpperCase();
+        if (roomId) {
+            socket.emit('joinRoom', roomId);
+        } else {
+            statusDiv.innerText = "Lütfen geçerli bir Oda ID girin.";
+        }
+    });
+    
+    document.getElementById('restart').addEventListener('click', () => { 
+        if (currentRoomId) {
+            socket.emit('restartGame', { roomId: currentRoomId });
+        }
+    });
+
+    document.getElementById('resetScores').addEventListener('click', () => { 
+        if (currentRoomId) {
+            socket.emit('resetScores', { roomId: currentRoomId });
+        }
+    });
+
+
+    // ===================================================================
+    // 📢 ÇİZİM VE YARDIMCI FONKSİYONLAR
+    // ===================================================================
+    
     function updateScoreUI() {
       document.getElementById('score').innerText = scores[0] + ' — ' + scores[1];
     }
-
-    function resetPositions() {
-      p1.pos = v(W * 0.2, H / 2);
-      p1.vel = v();
-      p2.pos = v(W * 0.8, H / 2);
-      p2.vel = v();
-      ball.pos = v(W / 2, H / 2);
-      ball.vel = v((Math.random() - 0.5) * 200, (Math.random() - 0.5) * 200);
-    }
-
-    // Ana döngü
-    let accumulator = 0;
-    let last = performance.now();
+    
+    // FİZİK HESAPLAMALARINI İÇEREN TÜM FONKSİYONLAR SİLİNDİ/PASİFİZE EDİLDİ
+    // Sadece çizim döngüsü kaldı.
     function loop(now) {
-      const elapsed = (now - last) / 1000;
-      last = now;
-      accumulator += elapsed;
-      while (accumulator >= DT) {
-        step(DT);
-        accumulator -= DT;
+      // FİZİK HESAPLAMASI YOK (Sunucu yapıyor)
+      render(); 
+      if (isGameRunning) {
+        requestAnimationFrame(loop);
       }
-      render();
-      requestAnimationFrame(loop);
-    }
-
-    function step(dt) {
-      p1.update(dt, input);
-      p2.update(dt, input);
-      ball.update(dt);
-      resolveCircleCollision(p1, p2);
-      playerBallCollision(p1, ball);
-      playerBallCollision(p2, ball);
-      checkGoal();
     }
 
     function drawField() {
+      // Saha çizimi değişmedi
+      const GOAL_H = 120;
       ctx.fillStyle = '#08324b';
       ctx.fillRect(0, 0, W, H);
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
@@ -314,16 +385,9 @@
       p2.draw(ctx);
     }
 
-    // UI butonları
-    document.getElementById('restart').addEventListener('click', () => { resetPositions(); });
-    document.getElementById('resetScores').addEventListener('click', () => { scores = [0, 0]; updateScoreUI(); resetPositions(); });
-
-    // Başlangıç
-    resetPositions();
+    // Başlangıç 
     updateScoreUI();
-    requestAnimationFrame(loop);
-  </script>
+  </script>
 
 </body>
-  <script src="/socket.io/socket.io.js"></script>
 </html>
