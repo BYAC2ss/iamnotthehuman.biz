@@ -7,17 +7,25 @@ const path = require('path');
 const app = express();
 const server = http.createServer(app);
 
-// Heroku, hangi portu kullanacağını bu değişkenle bildirir.
+// Heroku Port Ayarı
 const PORT = process.env.PORT || 3000; 
 
 // Socket.IO'yu HTTP sunucusuna bağla
 const io = socketIo(server);
 
-// Statik dosyaları (index.html) public klasöründen sun
-app.use(express.static(path.join(__dirname, 'public')));
+// 🆕 DEĞİŞİKLİK: HTML dosyasını kök dizinden sunma
+// Kullanıcı kök URL'ye (/) gittiğinde index.html dosyasını gönderir.
+app.get('/', (req, res) => {
+    // index.html'nin server.js ile aynı dizinde olduğunu varsayıyoruz.
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
 
-// Oyun sabitleri (index.html'den kopyaladık)
-const W = 900, H = 520; // Saha Boyutu
+// =========================================================
+// OYUN SABİTLERİ VE FİZİK MANTIĞI (Sunucu Tarafı)
+// =========================================================
+
+// Oyun sabitleri (index.html'den kopyalandı)
+const W = 900, H = 520; 
 const PLAYER_RADIUS = 18;
 const BALL_RADIUS = 12;
 const PLAYER_ACCEL = 2200;
@@ -28,14 +36,13 @@ const GOAL_H = 120;
 const SUPER_SHOT_FORCE = 3000; 
 const DT = 1 / 60; // 60 FPS
 
-// Vektör yardımcı fonksiyonlar (index.html'den kopyaladık)
+// Vektör yardımcı fonksiyonlar (index.html'den kopyalandı)
 function v(x = 0, y = 0) { return { x, y }; }
 function add(a, b) { return { x: a.x + b.x, y: a.y + b.y }; }
 function sub(a, b) { return { x: a.x - b.x, y: a.y - b.y }; }
 function mul(a, s) { return { x: a.x * s, y: a.y * s }; }
 function len(a) { return Math.hypot(a.x, a.y); }
 function norm(a) { const L = len(a) || 1; return { x: a.x / L, y: a.y / L }; }
-
 
 // Sunucu tarafı Player Sınıfı
 class Player {
@@ -76,7 +83,6 @@ class Player {
 
     handleWallCollision() {
         const r = this.radius;
-        // Kenar çarpışmaları (index.html'den kopyalandı)
         if (this.pos.x < r) { this.pos.x = r; this.vel.x *= -0.3; }
         if (this.pos.x > W - r) { this.pos.x = W - r; this.vel.x *= -0.3; }
         if (this.pos.y < r) { this.pos.y = r; this.vel.y *= -0.3; }
@@ -118,7 +124,7 @@ class Ball {
         const s = len(this.vel);
         if (s > BALL_MAX_SPEED) this.vel = mul(norm(this.vel), BALL_MAX_SPEED);
 
-        this.isSupershotBall = false; // Her adımda sıfırla
+        this.isSupershotBall = false; // Her adımda sıfırla (görsel efekt)
     }
 }
 
@@ -216,8 +222,10 @@ function createNewGame(roomId, socketId) {
         resetPositions: function() {
             this.p1.pos = v(W * 0.2, H / 2);
             this.p1.vel = v();
+            this.p1.isSuperShooting = false;
             this.p2.pos = v(W * 0.8, H / 2);
             this.p2.vel = v();
+            this.p2.isSuperShooting = false;
             this.ball.pos = v(W / 2, H / 2);
             this.ball.vel = v((Math.random() - 0.5) * 200, (Math.random() - 0.5) * 200); // Başlangıç vuruşu
         }
@@ -227,7 +235,10 @@ function createNewGame(roomId, socketId) {
     return game;
 }
 
-// Socket.IO Bağlantıları ve Olay İşleyicileri
+// =========================================================
+// SOCKET.IO BAĞLANTILARI
+// =========================================================
+
 io.on('connection', (socket) => {
     console.log('Yeni kullanıcı bağlandı:', socket.id);
     
@@ -262,7 +273,7 @@ io.on('connection', (socket) => {
         socket.emit('roomJoined', roomId);
     });
     
-    // --- OYUNCU GİRİŞİ ---
+    // --- OYUNCU GİRİŞİ (WASD + BOŞLUK) ---
     socket.on('playerInput', (data) => {
         const game = games[data.roomId];
         if (!game || !game.isRunning) return;
@@ -281,16 +292,17 @@ io.on('connection', (socket) => {
         // SÜPER VURUŞ MANTIĞI
         if (key === ' ' && data.pressed) { 
             if (playerObject.canSuperShot) { 
-                playerObject.isSuperShooting = true;
+                playerObject.isSuperShooting = true; // Fizikte kullanılmak üzere işaretle
                 playerObject.canSuperShot = false; 
                 
-                // Oyuncuya ve odaya cooldown bilgisini gönder
+                // Oyuncuya cooldown bilgisini gönder
                 socket.emit('superShotCooldown', { playerIndex: playerIndex });
                 
+                // Cooldown süresi bitince tekrar hazır hale getir
                 setTimeout(() => {
                     playerObject.canSuperShot = true;
                     socket.emit('superShotReady', { playerIndex: playerIndex });
-                }, 5000); 
+                }, 5000); // 5 saniye
             }
         }
     });
@@ -315,7 +327,6 @@ io.on('connection', (socket) => {
 
     // --- BAĞLANTI KESİLMESİ ---
     socket.on('disconnect', () => {
-        console.log('Kullanıcı bağlantısı kesildi:', socket.id);
         for (const roomId in games) {
             const game = games[roomId];
             const playerIndex = game.players.indexOf(socket.id);
@@ -330,7 +341,10 @@ io.on('connection', (socket) => {
     });
 });
 
-// Sunucu Oyun Döngüsü (Fizik Motoru) - 60 FPS
+// =========================================================
+// SUNUCU OYUN DÖNGÜSÜ (Fizik Motoru) - 60 FPS
+// =========================================================
+
 setInterval(() => {
     for (const roomId in games) {
         const game = games[roomId];
