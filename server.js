@@ -21,6 +21,7 @@ const io = new Server(server, {
     }
 });
 
+
 // ================================
 // STATİK DOSYA SERVİSİ
 // ================================
@@ -40,3 +41,4 @@ app.get("/", (req, res) => {
 
 // (Aşağıya senin gönderdiğin tüm oyun kodu aynen bırakıldı)
 // ----------------------------------------------------------
+
