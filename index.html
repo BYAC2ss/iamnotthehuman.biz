@@ -1,397 +1,83 @@
-<!doctype html>
-<html lang="tr">
+<!DOCTYPE html>
+<html>
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Haxball-benzeri Oyun (HTML5) - Online</title>
+  <meta charset="UTF-8">
+  <title>Multiplayer Haxball Clone</title>
   <style>
-    html, body {
-      height: 100%;
-      margin: 0;
-      background: #0b1220;
-      color: #fff;
-      font-family: Arial, sans-serif;
-    }
-
-    #game {
-      display: block;
-      margin: 0 auto;
-      background: #10304a;
-      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
-    }
-
-    #ui {
-      width: 900px;
-      margin: 12px auto;
-      text-align: center;
-    }
-
-    button {
-      padding: 8px 12px;
-      margin: 6px;
-      font-size: 16px;
-      cursor: pointer;
-      border: none;
-      border-radius: 4px;
-      background: #58a6ff;
-      color: #0b1220;
-      transition: background 0.3s;
-    }
-    button:hover {
-      background: #79b7ff;
-    }
-
-    h2 {
-      font-size: 24px;
-    }
-    
-    #score {
-      font-size: 24px;
-      margin: 12px;
-    }
-
-    #roomIdInput {
-      padding: 8px;
-      margin: 6px;
-      font-size: 16px;
-      border: none;
-      border-radius: 4px;
-      width: 150px;
-      background: #1e3a5f;
-      color: #fff;
-    }
-
-    #status {
-      color: #ff6b6b;
-      font-weight: bold;
-      margin-top: 10px;
-    }
-    .supershot-ready {
-        color: #70ff70;
-        font-weight: bold;
-    }
-    .supershot-cooldown {
-        color: #ffa07a;
-    }
-
+    body { background: #222; overflow:hidden; }
+    canvas { background:#333; display:block; margin:auto; }
   </style>
 </head>
 <body>
 
-  <div id="ui">
-    <h2>Haxball-benzeri Oyun — Çevrimiçi</h2>
-    
-    <div id="room-setup">
-      <input type="text" id="roomIdInput" placeholder="Oda ID Girin">
-      <button id="createRoom">Oda Kur</button>
-      <button id="joinRoom">Odaya Katıl</button>
-    </div>
-    <div id="status">Sunucuya bağlanıyor...</div>
-    <div id="supershot-status" style="display:none; margin-top: 10px;">Süper Vuruş: <span id="supershot-state">Yükleniyor...</span></div>
+<canvas id="game" width="800" height="600"></canvas>
 
-    <div id="game-controls" style="display:none;">
-      <div id="score">0 — 0</div>
-      <button id="restart">Yeniden Başlat</button>
-      <button id="resetScores">Skorları Sıfırla</button>
-    </div>
-  </div>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 
-  <canvas id="game" width="900" height="520"></canvas>
+<script>
+const socket = io("https://iamnotthehuman-biz-node.onrender.com");
 
-  <!-- socket.io istemcisini doğrudan backend'den yüklüyoruz -->
-  <script src="https://iamnotthehuman-biz-node.onrender.com/socket.io/socket.io.js"></script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
 
-  <script>
-    // Backend adresi (Render)
-    const BACKEND_URL = "https://iamnotthehuman-biz-node.onrender.com";
+let players = {};
+let ball = { x: 400, y:300 };
 
-    // Canvas ve context tanımlamaları
-    const canvas = document.getElementById('game');
-    const ctx = canvas.getContext('2d');
-    const W = canvas.width, H = canvas.height;
+// İlk veri
+socket.on("init", (data)=> {
+  players = data.players;
+  ball = data.ball;
+});
 
-    // Oyun ayarları (Çoğu sunucu tarafından yönetilecek)
-    const DT = 1 / 60;
-    const PLAYER_RADIUS = 18;
-    const BALL_RADIUS = 12;
-    let scores = [0, 0];
-    
-    // YENİ: Kontrol tuşları (iki oyuncu da aynı tuşları kullanacak, sunucu hangisinin hangi tuşa bastığını ayıracak)
-    const PLAYER_CONTROLS = {
-        up: 'w',
-        down: 's',
-        left: 'a',
-        right: 'd',
-        supershot: ' ' // Boşluk tuşu (Spacebar)
-    };
+// Canlı güncelleme
+socket.on("state", (data)=> {
+  players = data.players;
+  ball = data.ball;
+});
 
-    // Vektör yardımcı fonksiyonlar
-    function v(x = 0, y = 0) { return { x, y }; }
-    function len(a) { return Math.hypot(a.x, a.y); }
+document.addEventListener("keydown", (e)=>{
+  if (["up","down","left","right"].includes(key(e.key))) {
+    socket.emit("keydown", key(e.key));
+  }
+});
 
-    // Oyuncu sınıfı - SADECE ÇİZİM İÇİN KULLANILACAK
-    class Player {
-      constructor(x, y, color) {
-        this.pos = v(x, y);
-        this.radius = PLAYER_RADIUS;
-        this.color = color;
-        this.isSuperShooting = false; // Supershot animasyon/görsel efekt için
-      }
-      
-      draw(ctx) {
-        ctx.beginPath();
-        // Süper Vuruş anında oyuncuyu parlatabiliriz (görsel feedback)
-        if (this.isSuperShooting) {
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = '#fff';
-        }
-        ctx.fillStyle = this.color;
-        ctx.arc(this.pos.x, this.pos.y, this.radius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.closePath();
-        
-        ctx.shadowBlur = 0; // Gölgeyi kapat
-        
-        // Göz/Işık çizimi
-        ctx.fillStyle = '#fff';
-        ctx.beginPath();
-        ctx.arc(this.pos.x - this.radius / 4, this.pos.y - this.radius / 4, 3, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
+document.addEventListener("keyup", (e)=>{
+  if (["up","down","left","right"].includes(key(e.key))) {
+    socket.emit("keyup", key(e.key));
+  }
+});
 
-    // Top sınıfı - SADECE ÇİZİM İÇİN KULLANILACAK
-    class Ball {
-      constructor(x, y) {
-        this.pos = v(x, y);
-        this.radius = BALL_RADIUS;
-        this.isSupershotBall = false; // Topun Süper Vuruş anında parlaması için
-      }
-      
-      draw(ctx) {
-        ctx.beginPath();
-        ctx.fillStyle = '#ffd27f';
-        
-        // Süper Vuruş anında topu parlat
-        if (this.isSupershotBall) {
-            ctx.shadowBlur = 15;
-            ctx.shadowColor = '#ff6b6b';
-        }
+function key(k){
+  return {
+    "w":"up","ArrowUp":"up",
+    "s":"down","ArrowDown":"down",
+    "a":"left","ArrowLeft":"left",
+    "d":"right","ArrowRight":"right"
+  }[k];
+}
 
-        ctx.arc(this.pos.x, this.pos.y, this.radius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#b37b2f';
-        ctx.stroke();
-        
-        ctx.shadowBlur = 0; // Gölgeyi kapat
-      }
-    }
+function draw(){
+  ctx.clearRect(0,0,800,600);
 
-    // Oyuncu ve top nesneleri
-    const p1 = new Player(W * 0.2, H / 2, '#58a6ff');
-    const p2 = new Player(W * 0.8, H / 2, '#ff6b6b');
-    const ball = new Ball(W / 2, H / 2);
+  // Top
+  ctx.fillStyle="white";
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, 12, 0, Math.PI*2);
+  ctx.fill();
 
-    // ===================================================================
-    // 📢 ÇEVRİMİÇİ OYUN MANTIĞI VE SOCKET.IO BAĞLANTISI 
-    // ===================================================================
+  // Oyuncular
+  for (let id in players) {
+    let p = players[id];
+    ctx.fillStyle="cyan";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 15, 0, Math.PI*2);
+    ctx.fill();
+  }
 
-    // Backend'e bağlan (mutlak URL kullanıyoruz — GitHub Pages + Render kombinasyonu için güvenli)
-    const socket = io(BACKEND_URL); 
-    let currentRoomId = null;
-    let isGameRunning = false;
-    let isPlayer1 = false;
-    
-    // DOM Elementleri
-    const input = {}; 
-    const statusDiv = document.getElementById('status');
-    const gameControlsDiv = document.getElementById('game-controls');
-    const supershotStatusDiv = document.getElementById('supershot-status');
-    const supershotStateSpan = document.getElementById('supershot-state');
-
-    // Sunucu Olayları Dinleniyor
-    socket.on('connect', () => {
-        statusDiv.innerText = 'Sunucuya bağlandı. Oda kurun veya katılın.';
-    });
-
-    socket.on('roomCreated', (roomId) => {
-        currentRoomId = roomId;
-        isPlayer1 = true;
-        statusDiv.innerText = `Oda kuruldu: ${roomId}. WASD ve BOŞLUK (Süper Vuruş) kullanacaksın. Arkadaşını bekle...`;
-        document.getElementById('roomIdInput').value = roomId;
-    });
-
-    socket.on('roomJoined', (roomId) => {
-        currentRoomId = roomId;
-        isPlayer1 = false; 
-        statusDiv.innerText = `Odaya katıldınız: ${roomId}. WASD ve BOŞLUK (Süper Vuruş) kullanacaksın. Rakip bekleniyor...`;
-    });
-
-    socket.on('gameStart', (playerAssignment) => {
-        isGameRunning = true;
-        isPlayer1 = playerAssignment.playerIndex === 0;
-        statusDiv.innerText = `OYUN BAŞLADI! Sen ${isPlayer1 ? '1. Oyuncusun' : '2. Oyuncusun'}. WASD/BOŞLUK ile oyna.`;
-        gameControlsDiv.style.display = 'block';
-        supershotStatusDiv.style.display = 'block';
-        document.getElementById('room-setup').style.display = 'none';
-        requestAnimationFrame(loop); 
-    });
-
-    socket.on('gameStateUpdate', (gameState) => {
-        if (isGameRunning) {
-            // Pozisyonları güncelle
-            p1.pos.x = gameState.p1.pos.x;
-            p1.pos.y = gameState.p1.pos.y;
-            p2.pos.x = gameState.p2.pos.x;
-            p2.pos.y = gameState.p2.pos.y;
-            ball.pos.x = gameState.ball.pos.x;
-            ball.pos.y = gameState.ball.pos.y;
-            
-            // Süper Vuruş Görsel Durumu Güncelle (Ani Vuruş Görseli için)
-            p1.isSuperShooting = gameState.p1.isSuperShooting;
-            p2.isSuperShooting = gameState.p2.isSuperShooting;
-            ball.isSupershotBall = gameState.ball.isSupershotBall;
-
-            scores[0] = gameState.scores[0];
-            scores[1] = gameState.scores[1];
-            updateScoreUI();
-        }
-    });
-    
-    socket.on('superShotReady', (data) => {
-        // Sadece kendi durumumuzu güncelleyelim
-        const localPlayer = isPlayer1 ? 0 : 1;
-        if (data.playerIndex === localPlayer) {
-            supershotStateSpan.innerText = 'HAZIR!';
-            supershotStateSpan.className = 'supershot-ready';
-        }
-    });
-
-    socket.on('superShotCooldown', (data) => {
-        const localPlayer = isPlayer1 ? 0 : 1;
-        if (data.playerIndex === localPlayer) {
-            supershotStateSpan.innerText = 'Yükleniyor (5sn)...';
-            supershotStateSpan.className = 'supershot-cooldown';
-        }
-    });
-
-    socket.on('gameReset', () => {
-        statusDiv.innerText = 'GOOLL!! Oyun Sıfırlandı!';
-    });
-    
-    socket.on('error', (message) => {
-        statusDiv.innerText = `Hata: ${message}`;
-        gameControlsDiv.style.display = 'none';
-        supershotStatusDiv.style.display = 'none';
-        document.getElementById('room-setup').style.display = 'block';
-    });
-
-    // Kontroller: Tuş basışlarını SADECE sunucuya iletiyoruz
-    window.addEventListener('keydown', e => { 
-        // Tuşu küçük harfe çevir
-        const key = e.key.toLowerCase(); 
-        const isControlKey = Object.values(PLAYER_CONTROLS).includes(key);
-
-        if (isControlKey && !input[key]) {
-            input[key] = true; 
-            if (currentRoomId && isGameRunning) {
-                socket.emit('playerInput', { roomId: currentRoomId, key: key, pressed: true });
-            }
-        }
-    });
-
-    window.addEventListener('keyup', e => { 
-        const key = e.key.toLowerCase(); 
-        
-        if (input[key]) {
-            input[key] = false; 
-            if (currentRoomId && isGameRunning) {
-                socket.emit('playerInput', { roomId: currentRoomId, key: key, pressed: false });
-            }
-        }
-    });
-
-    // UI Butonlarına Socket.IO Mantığı
-    document.getElementById('createRoom').addEventListener('click', () => {
-        const newRoomId = Math.random().toString(36).substring(2, 6).toUpperCase(); 
-        document.getElementById('roomIdInput').value = newRoomId;
-        socket.emit('createRoom', newRoomId);
-    });
-
-    document.getElementById('joinRoom').addEventListener('click', () => {
-        const roomId = document.getElementById('roomIdInput').value.trim().toUpperCase();
-        if (roomId) {
-            socket.emit('joinRoom', roomId);
-        } else {
-            statusDiv.innerText = "Lütfen geçerli bir Oda ID girin.";
-        }
-    });
-    
-    document.getElementById('restart').addEventListener('click', () => { 
-        if (currentRoomId) {
-            socket.emit('restartGame', { roomId: currentRoomId });
-        }
-    });
-
-    document.getElementById('resetScores').addEventListener('click', () => { 
-        if (currentRoomId) {
-            socket.emit('resetScores', { roomId: currentRoomId });
-        }
-    });
-
-
-    // ===================================================================
-    // 📢 ÇİZİM VE YARDIMCI FONKSİYONLAR
-    // ===================================================================
-    
-    function updateScoreUI() {
-      document.getElementById('score').innerText = scores[0] + ' — ' + scores[1];
-    }
-    
-    // FİZİK HESAPLAMALARINI İÇEREN TÜM FONKSİYONLAR SİLİNDİ/PASİFİZE EDİLDİ
-    // Sadece çizim döngüsü kaldı.
-    function loop(now) {
-      // FİZİK HESAPLAMASI YOK (Sunucu yapıyor)
-      render(); 
-      if (isGameRunning) {
-        requestAnimationFrame(loop);
-      }
-    }
-
-    function drawField() {
-      // Saha çizimi değişmedi
-      const GOAL_H = 120;
-      ctx.fillStyle = '#08324b';
-      ctx.fillRect(0, 0, W, H);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(W / 2, 20);
-      ctx.lineTo(W / 2, H - 20);
-      ctx.stroke();
-      ctx.closePath();
-      ctx.beginPath();
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
-      ctx.lineWidth = 2;
-      ctx.arc(W / 2, H / 2, 70, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.closePath();
-      ctx.fillStyle = '#042733';
-      ctx.fillRect(0, (H - GOAL_H) / 2, 8, GOAL_H);
-      ctx.fillRect(W - 8, (H - GOAL_H) / 2, 8, GOAL_H);
-    }
-
-    function render() {
-      ctx.clearRect(0, 0, W, H);
-      drawField();
-      ball.draw(ctx);
-      p1.draw(ctx);
-      p2.draw(ctx);
-    }
-
-    // Başlangıç 
-    updateScoreUI();
-  </script>
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
 
 </body>
 </html>
