@@ -1,133 +1,104 @@
+// ====== SERVER ======
 const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const path = require("path");
-
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] }
+const http = require("http").createServer(app);
+const io = require("socket.io")(http, {
+  cors: { origin: "*" }
 });
 
 const PORT = process.env.PORT || 3000;
 
-app.use(express.static(__dirname));
+app.use(express.static("public"));
 
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "index.html"));
-});
+let players = {};
+let ball = { x: 400, y: 300, vx: 0, vy: 0 };
 
-// =====================================================
-//  ROOM SISTEMI + OYUN YÖNETİMİ (FRONTEND İLE TAM UYUMLU)
-// =====================================================
-
-let rooms = {};  
-/*
-rooms = {
-  "ABCD": {
-    players: [socketId1, socketId2],
-    gameState: {...}
-  }
-}
-*/
-
-function createDefaultGameState() {
-  return {
-    p1: { pos: { x: 180, y: 260 }, isSuperShooting: false },
-    p2: { pos: { x: 720, y: 260 }, isSuperShooting: false },
-    ball: { pos: { x: 450, y: 260 }, isSupershotBall: false },
-    scores: [0, 0]
-  };
-}
+// Fizik Ayarları — Eski Haxball’a yakın değerler
+const PLAYER_SPEED = 3.0;
+const FRICTION = 0.94;
+const BALL_FRICTION = 0.985;
+const BALL_SPEED_LIMIT = 7;
 
 io.on("connection", (socket) => {
-  
-  // ---------------------------------------------------
-  // ODA KUR
-  // ---------------------------------------------------
-  socket.on("createRoom", (roomId) => {
-    if (!rooms[roomId]) {
-      rooms[roomId] = {
-        players: [socket.id],
-        gameState: createDefaultGameState()
-      };
+  console.log("Oyuncu bağlandı:", socket.id);
 
-      socket.join(roomId);
-      socket.emit("roomCreated", roomId);
-    }
+  players[socket.id] = {
+    x: 200 + Math.random() * 200,
+    y: 150 + Math.random() * 200,
+    vx: 0,
+    vy: 0,
+    up: false,
+    down: false,
+    left: false,
+    right: false
+  };
+
+  socket.emit("init", { id: socket.id, players, ball });
+
+  socket.on("keydown", (key) => {
+    players[socket.id][key] = true;
   });
 
-  // ---------------------------------------------------
-  // ODAYA KATIL
-  // ---------------------------------------------------
-  socket.on("joinRoom", (roomId) => {
-    if (!rooms[roomId]) {
-      socket.emit("error", "Böyle bir oda yok.");
-      return;
-    }
-
-    if (rooms[roomId].players.length >= 2) {
-      socket.emit("error", "Oda dolu.");
-      return;
-    }
-
-    rooms[roomId].players.push(socket.id);
-    socket.join(roomId);
-    socket.emit("roomJoined", roomId);
-
-    // İki oyuncu tamamlandı, oyunu başlat
-    if (rooms[roomId].players.length === 2) {
-      io.to(roomId).emit("gameStart", { playerIndex: 0 });
-      io.to(rooms[roomId].players[1]).emit("gameStart", { playerIndex: 1 });
-    }
+  socket.on("keyup", (key) => {
+    players[socket.id][key] = false;
   });
 
-  // ---------------------------------------------------
-  // OYUNCU INPUT
-  // ---------------------------------------------------
-  socket.on("playerInput", ({ roomId, key, pressed }) => {
-    if (!rooms[roomId]) return;
-
-    // Burada sadece input relay yapıyoruz
-    socket.to(roomId).emit("playerInput", { key, pressed });
-  });
-
-  // ---------------------------------------------------
-  // RESET KOMUTLARI
-  // ---------------------------------------------------
-  socket.on("restartGame", ({ roomId }) => {
-    if (!rooms[roomId]) return;
-
-    rooms[roomId].gameState = createDefaultGameState();
-    io.to(roomId).emit("gameReset");
-  });
-
-  socket.on("resetScores", ({ roomId }) => {
-    if (!rooms[roomId]) return;
-    rooms[roomId].gameState.scores = [0, 0];
-
-    io.to(roomId).emit("gameStateUpdate", rooms[roomId].gameState);
-  });
-
-  // ---------------------------------------------------
-  // OYUNCU AYRILIRSA ODA SİLİNİR
-  // ---------------------------------------------------
   socket.on("disconnect", () => {
-    for (const roomId in rooms) {
-      const index = rooms[roomId].players.indexOf(socket.id);
-      if (index !== -1) {
-        rooms[roomId].players.splice(index, 1);
-        io.to(roomId).emit("error", "Rakip oyundan çıktı.");
-
-        // Oda tamamen boşaldıysa sil
-        if (rooms[roomId].players.length === 0) {
-          delete rooms[roomId];
-        }
-      }
-    }
+    delete players[socket.id];
   });
 });
 
-server.listen(PORT, () => {
-  console.log("Server is running:", PORT);
-});
+// === Fizik motoru ===
+setInterval(() => {
+  // Oyuncu hareketi
+  for (let id in players) {
+    let p = players[id];
+
+    if (p.up) p.vy -= PLAYER_SPEED;
+    if (p.down) p.vy += PLAYER_SPEED;
+    if (p.left) p.vx -= PLAYER_SPEED;
+    if (p.right) p.vx += PLAYER_SPEED;
+
+    p.vx *= FRICTION;
+    p.vy *= FRICTION;
+
+    p.x += p.vx;
+    p.y += p.vy;
+
+    // Saha sınırları
+    if (p.x < 20) p.x = 20;
+    if (p.x > 780) p.x = 780;
+    if (p.y < 20) p.y = 20;
+    if (p.y > 580) p.y = 580;
+
+    // Top çarpışması
+    let dx = p.x - ball.x;
+    let dy = p.y - ball.y;
+    let dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < 28) {
+      ball.vx = dx * 0.25;
+      ball.vy = dy * 0.25;
+    }
+  }
+
+  // Top hareket
+  ball.vx *= BALL_FRICTION;
+  ball.vy *= BALL_FRICTION;
+
+  // Limit
+  ball.vx = Math.max(Math.min(ball.vx, BALL_SPEED_LIMIT), -BALL_SPEED_LIMIT);
+  ball.vy = Math.max(Math.min(ball.vy, BALL_SPEED_LIMIT), -BALL_SPEED_LIMIT);
+
+  ball.x += ball.vx;
+  ball.y += ball.vy;
+
+  // Sınırlar
+  if (ball.x < 20 || ball.x > 780) ball.vx *= -1;
+  if (ball.y < 20 || ball.y > 580) ball.vy *= -1;
+
+  io.emit("state", { players, ball });
+
+}, 1000 / 60);
+
+http.listen(PORT, () => console.log("Server çalışıyor:", PORT));
