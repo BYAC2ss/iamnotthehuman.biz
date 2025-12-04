@@ -1,71 +1,71 @@
 <!doctype html>
 <html lang="tr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Haxball-benzeri Oyun (HTML5) - Online</title>
-  <style>
-    html, body {
-      height: 100%;
-      margin: 0;
-      background: #0b1220;
-      color: #fff;
-      font-family: Arial, sans-serif;
-    }
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Haxball-benzeri Oyun (HTML5) - Online</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: #0b1220;
+      color: #fff;
+      font-family: Arial, sans-serif;
+    }
 
-    #game {
-      display: block;
-      margin: 0 auto;
-      background: #10304a;
-      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
-    }
+    #game {
+      display: block;
+      margin: 0 auto;
+      background: #10304a;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
+    }
 
-    #ui {
-      width: 900px;
-      margin: 12px auto;
-      text-align: center;
-    }
+    #ui {
+      width: 900px;
+      margin: 12px auto;
+      text-align: center;
+    }
 
-    button {
-      padding: 8px 12px;
-      margin: 6px;
-      font-size: 16px;
-      cursor: pointer;
-      border: none;
-      border-radius: 4px;
-      background: #58a6ff;
-      color: #0b1220;
-      transition: background 0.3s;
-    }
-    button:hover {
-      background: #79b7ff;
-    }
+    button {
+      padding: 8px 12px;
+      margin: 6px;
+      font-size: 16px;
+      cursor: pointer;
+      border: none;
+      border-radius: 4px;
+      background: #58a6ff;
+      color: #0b1220;
+      transition: background 0.3s;
+    }
+    button:hover {
+      background: #79b7ff;
+    }
 
-    h2 {
-      font-size: 24px;
-    }
-    
-    #score {
-      font-size: 24px;
-      margin: 12px;
-    }
+    h2 {
+      font-size: 24px;
+    }
+    
+    #score {
+      font-size: 24px;
+      margin: 12px;
+    }
 
-    #roomIdInput {
-      padding: 8px;
-      margin: 6px;
-      font-size: 16px;
-      border: none;
-      border-radius: 4px;
-      width: 150px;
-      background: #1e3a5f;
-      color: #fff;
-    }
+    #roomIdInput {
+      padding: 8px;
+      margin: 6px;
+      font-size: 16px;
+      border: none;
+      border-radius: 4px;
+      width: 150px;
+      background: #1e3a5f;
+      color: #fff;
+    }
 
-    #status {
-      color: #ff6b6b;
-      font-weight: bold;
-      margin-top: 10px;
-    }
+    #status {
+      color: #ff6b6b;
+      font-weight: bold;
+      margin-top: 10px;
+    }
     .supershot-ready {
         color: #70ff70;
         font-weight: bold;
@@ -74,34 +74,37 @@
         color: #ffa07a;
     }
 
-  </style>
+  </style>
 </head>
 <body>
 
-  <div id="ui">
-    <h2>Haxball-benzeri Oyun — Çevrimiçi</h2>
-    
-    <div id="room-setup">
-      <input type="text" id="roomIdInput" placeholder="Oda ID Girin">
-      <button id="createRoom">Oda Kur</button>
-      <button id="joinRoom">Odaya Katıl</button>
-    </div>
-    <div id="status">Sunucuya bağlanıyor...</div>
-     <div id="supershot-status" style="display:none; margin-top: 10px;">Süper Vuruş: <span id="supershot-state">Yükleniyor...</span></div>
+  <div id="ui">
+    <h2>Haxball-benzeri Oyun — Çevrimiçi</h2>
+    
+    <div id="room-setup">
+      <input type="text" id="roomIdInput" placeholder="Oda ID Girin">
+      <button id="createRoom">Oda Kur</button>
+      <button id="joinRoom">Odaya Katıl</button>
+    </div>
+    <div id="status">Sunucuya bağlanıyor...</div>
+    <div id="supershot-status" style="display:none; margin-top: 10px;">Süper Vuruş: <span id="supershot-state">Yükleniyor...</span></div>
 
+    <div id="game-controls" style="display:none;">
+      <div id="score">0 — 0</div>
+      <button id="restart">Yeniden Başlat</button>
+      <button id="resetScores">Skorları Sıfırla</button>
+    </div>
+  </div>
 
-    <div id="game-controls" style="display:none;">
-      <div id="score">0 — 0</div>
-      <button id="restart">Yeniden Başlat</button>
-      <button id="resetScores">Skorları Sıfırla</button>
-    </div>
-  </div>
+  <canvas id="game" width="900" height="520"></canvas>
 
-  <canvas id="game" width="900" height="520"></canvas>
+  <!-- socket.io istemcisini doğrudan backend'den yüklüyoruz -->
+  <script src="https://iamnotthehuman-biz-node.onrender.com/socket.io/socket.io.js"></script>
 
-    <script src="/socket.io/socket.io.js"></script> 
+  <script>
+    // Backend adresi (Render)
+    const BACKEND_URL = "https://iamnotthehuman-biz-node.onrender.com";
 
-  <script>
     // Canvas ve context tanımlamaları
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
@@ -193,7 +196,8 @@
     // 📢 ÇEVRİMİÇİ OYUN MANTIĞI VE SOCKET.IO BAĞLANTISI 
     // ===================================================================
 
-    const socket = io(); 
+    // Backend'e bağlan (mutlak URL kullanıyoruz — GitHub Pages + Render kombinasyonu için güvenli)
+    const socket = io(BACKEND_URL); 
     let currentRoomId = null;
     let isGameRunning = false;
     let isPlayer1 = false;
@@ -387,7 +391,7 @@
 
     // Başlangıç 
     updateScoreUI();
-  </script>
+  </script>
 
 </body>
 </html>
