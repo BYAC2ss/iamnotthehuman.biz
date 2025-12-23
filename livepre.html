@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pro Code Editor v4</title>
+    <style>
+        :root {
+            --bg-dark: #1e1e1e;
+            --bg-panel: #252526;
+            --bg-active: #1e1e1e;
+            --border-color: #3e3e42;
+            --accent: #007acc;
+            --text-main: #cccccc;
+            --text-dim: #858585;
+            --scrollbar-bg: #1e1e1e;
+            --scrollbar-thumb: #424242;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0; padding: 0;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Top Navigation Bar */
+        header {
+            height: 35px;
+            background-color: #333333;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 15px;
+            font-size: 13px;
+            border-bottom: 1px solid #111;
+        }
+
+        .brand {
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .brand span { color: var(--accent); }
+
+        .actions { display: flex; align-items: center; }
+
+        .actions button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 5px 12px;
+            font-size: 12px;
+            cursor: pointer;
+            border-radius: 2px;
+            margin-left: 8px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .actions button.secondary { background: #444; }
+        .actions button:hover { opacity: 0.9; }
+
+        /* Main Workspace */
+        .workspace {
+            display: flex;
+            flex: 1;
+            height: calc(100vh - 57px);
+            position: relative;
+        }
+
+        /* Editor Section */
+        .editor-pane {
+            width: 50%;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--bg-dark);
+            min-width: 200px;
+        }
+
+        /* Tab Bar & Draggable Styles */
+        .tab-bar {
+            background-color: var(--bg-panel);
+            height: 35px;
+            display: flex;
+            align-items: center;
+            overflow-x: auto;
+            padding-right: 10px;
+        }
+
+        .tab {
+            padding: 0 10px;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            font-size: 13px;
+            color: #969696;
+            background: #2d2d2d;
+            border-right: 1px solid #252526;
+            cursor: pointer;
+            user-select: none;
+            min-width: 100px;
+            justify-content: space-between;
+            transition: background 0.1s;
+        }
+
+        .tab.dragging {
+            opacity: 0.5;
+            background-color: #444;
+            border: 1px dashed #666;
+        }
+
+        .tab:hover { background-color: #333; }
+
+        .tab.active {
+            background-color: var(--bg-dark);
+            color: #fff;
+            border-top: 2px solid var(--accent);
+        }
+
+        .close-tab {
+            margin-left: 8px;
+            font-size: 14px;
+            width: 18px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 3px;
+            color: #ccc;
+        }
+        .close-tab:hover { background: #444; color: white; }
+
+        .add-tab-btn {
+            background: none; border: none; color: #ccc;
+            font-size: 18px; padding: 0 10px; cursor: pointer;
+        }
+        .add-tab-btn:hover { color: white; }
+
+        /* Code Area */
+        .code-container {
+            flex: 1;
+            display: flex;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .gutter {
+            width: 40px;
+            background-color: var(--bg-dark);
+            color: #606060;
+            text-align: right;
+            padding: 10px 8px 10px 0;
+            font-family: 'Consolas', monospace;
+            font-size: 14px;
+            line-height: 22px;
+            user-select: none;
+            border-right: 1px solid #333;
+        }
+
+        textarea {
+            flex: 1;
+            background-color: var(--bg-dark);
+            color: #d4d4d4;
+            border: none;
+            resize: none;
+            outline: none;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 22px;
+            padding: 10px;
+            white-space: pre;
+            overflow: auto;
+            tab-size: 4;
+        }
+
+        /* Resizer Handle */
+        .resizer {
+            width: 5px;
+            background-color: var(--bg-panel);
+            cursor: col-resize;
+            border-left: 1px solid #000;
+            z-index: 10;
+        }
+        .resizer:hover { background-color: var(--accent); }
+
+        /* Preview Section */
+        .preview-pane {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: white;
+            min-width: 200px;
+            position: relative;
+        }
+
+        .preview-toolbar {
+            height: 35px;
+            background: #f3f3f3;
+            border-bottom: 1px solid #ccc;
+            display: flex;
+            align-items: center;
+            padding: 0 10px;
+            justify-content: space-between;
+        }
+        
+        .preview-label { color: #333; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap:5px;}
+        
+        iframe { width: 100%; height: 100%; border: none; background: #fff; }
+
+        /* Status Bar */
+        .status-bar {
+            height: 22px;
+            background-color: var(--accent);
+            color: white;
+            display: flex;
+            align-items: center;
+            padding: 0 15px;
+            font-size: 11px;
+            justify-content: space-between;
+        }
+
+        /* MODAL */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(2px);
+        }
+        .modal-content {
+            background: #252526;
+            width: 600px;
+            max-width: 90%;
+            max-height: 80vh;
+            border: 1px solid #454545;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            border-radius: 4px;
+        }
+        .modal-header {
+            padding: 15px;
+            background: #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #454545;
+        }
+        .modal-header h3 { margin: 0; font-size: 16px; color: white; }
+        .close-modal { background: none; border: none; color: #ccc; font-size: 20px; cursor: pointer; }
+        .close-modal:hover { color: white; }
+        .modal-body { padding: 20px; overflow-y: auto; color: #d4d4d4; }
+        .shortcut-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+        .shortcut-item { background: #1e1e1e; padding: 8px; border: 1px solid #3e3e42; border-radius: 3px; font-size: 13px; text-align: center; cursor: pointer; transition: 0.2s; }
+        .shortcut-item:hover { border-color: var(--accent); color: white; }
+        .modal-note { margin-top: 15px; font-size: 12px; color: #858585; border-top: 1px solid #3e3e42; padding-top: 10px; }
+
+        .overlay { position: absolute; top:0; left:0; width:100%; height:100%; display:none; z-index:99; }
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-track { background: var(--scrollbar-bg); }
+        ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 5px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="brand">
+            <span>&lt;/&gt;</span> DEV.EDITOR
+        </div>
+        <div class="actions">
+            <button class="secondary" onclick="openHelp()">⌨ Shortcuts</button>
+            <button class="secondary" onclick="newTab()">+ New File</button>
+            <button onclick="downloadFile()">Download .html</button>
+        </div>
+    </header>
+
+    <div id="helpModal" class="modal-overlay" onclick="closeHelp(event)">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Available Snippets (Type & Hit TAB)</h3>
+                <button class="close-modal" onclick="closeHelp(event, true)">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="shortcut-grid" id="shortcutGrid"></div>
+                <div class="modal-note">
+                    <strong>Tip:</strong> Type any of these words and press <code>Tab</code> to expand. Press <code>Enter</code> for auto-indent.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="workspace" id="workspace">
+        <div class="editor-pane" id="editorPane">
+            <div class="tab-bar">
+                <div id="tabsContainer" style="display:flex; height:100%;"></div>
+                <button class="add-tab-btn" onclick="newTab()">+</button>
+            </div>
+            <div class="code-container">
+                <div class="gutter" id="gutter">1</div>
+                <textarea id="editor" spellcheck="false" placeholder="Start coding HTML..."></textarea>
+            </div>
+        </div>
+        <div class="resizer" id="resizer"></div>
+        <div class="preview-pane" id="previewPane">
+            <div class="preview-toolbar">
+                <div class="preview-label">🌐 Live Preview</div>
+                <button class="secondary" style="padding: 2px 8px; font-size:11px; background:#ddd; color:#333; border:1px solid #ccc;" onclick="updatePreview()">Refresh</button>
+            </div>
+            <div class="overlay" id="dragOverlay"></div>
+            <iframe id="preview"></iframe>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <span id="cursorStats">Ln 1, Col 1</span>
+        <span>UTF-8 | HTML</span>
+    </div>
+
+    <script>
+        // --- DATA & STATE ---
+        let tabs = [];
+        let activeTabId = null;
+
+        // --- DOM ELEMENTS ---
+        const editor = document.getElementById('editor');
+        const gutter = document.getElementById('gutter');
+        const preview = document.getElementById('preview');
+        const tabsContainer = document.getElementById('tabsContainer');
+        const cursorStats = document.getElementById('cursorStats');
+        const resizer = document.getElementById('resizer');
+        const editorPane = document.getElementById('editorPane');
+        const dragOverlay = document.getElementById('dragOverlay');
+        const helpModal = document.getElementById('helpModal');
+        const shortcutGrid = document.getElementById('shortcutGrid');
+
+        // --- CONTENT TEMPLATES ---
+        
+        // learn.html Content (Tutorial)
+        const learnContent = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Tutorial</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #252526; color: white; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        h1 { color: #007acc; border-bottom: 2px solid #333; padding-bottom: 10px; }
+        .container { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+        .card { background: #333; padding: 20px; width: 250px; border-radius: 8px; border-left: 5px solid #007acc; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .card h3 { margin-top: 0; color: #4fc1ff; display: flex; align-items: center; gap: 10px; }
+        code { background: #1e1e1e; padding: 3px 6px; border-radius: 4px; font-family: monospace; color: #dcdcaa; }
+        ul { padding-left: 20px; line-height: 1.6; color: #ccc; }
+    </style>
+</head>
+<body>
+    <h1>🚀 Welcome to Dev.Editor</h1>
+    <div class="container">
+        <div class="card">
+            <h3>⚡ Shortcuts</h3>
+            <ul>
+                <li>Type <code>div</code> + <b>TAB</b></li>
+                <li>Type <code>table</code> + <b>TAB</b></li>
+                <li>Type <code>!</code> + <b>TAB</b> (Structure)</li>
+                <li><b>Auto-close:</b> (, {, [, ", '</li>
+            </ul>
+        </div>
+        <div class="card">
+            <h3>🖱 Mechanics</h3>
+            <ul>
+                <li><b>Drag Tabs:</b> Reorder your files.</li>
+                <li><b>Resizer:</b> Adjust editor width.</li>
+                <li><b>Auto-Indent:</b> Press Enter for smart spacing.</li>
+            </ul>
+        </div>
+        <div class="card">
+            <h3>📂 Files</h3>
+            <ul>
+                <li>Create new files with <b>+</b> button.</li>
+                <li>Files are named <code>index1.html</code>, etc.</li>
+                <li>Download your work as .html file.</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>`;
+
+        // User Requested Boilerplate
+        const userBoilerplate = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<style>
+
+</style>
+<body>
+  
+</body>
+<script>
+    
+<\/script>
+</html>`;
+
+        // --- SNIPPETS LIBRARY ---
+        const snippets = {
+            '!': userBoilerplate,
+            'html': '<html>\n\t\n</html>',
+            'head': '<head>\n\t\n</head>',
+            'body': '<body>\n\t\n</body>',
+            'div': '<div></div>',
+            'span': '<span></span>',
+            'p': '<p></p>',
+            'h1': '<h1></h1>',
+            'h2': '<h2></h2>',
+            'b': '<b></b>',
+            'strong': '<strong></strong>',
+            'i': '<i></i>',
+            'ul': '<ul>\n\t<li></li>\n</ul>',
+            'li': '<li></li>',
+            'a': '<a href=""></a>',
+            'img': '<img src="" alt="">',
+            'form': '<form action="" method="POST">\n\t\n</form>',
+            'input': '<input type="text">',
+            'button': '<button></button>',
+            'table': '<table border="1">\n\t<tr>\n\t\t<td></td>\n\t</tr>\n</table>',
+            'style': '<style>\n\t\n</style>',
+            'script': '<script>\n\t\n<\/script>'
+        };
+
+        window.onload = function() {
+            // 1. learn.html Tab
+            const tab1 = { id: 1, name: 'learn.html', content: learnContent };
+            
+            // 2. index1.html Tab
+            const tab2 = { id: 2, name: 'index1.html', content: userBoilerplate };
+            
+            tabs.push(tab1, tab2);
+            activeTabId = tab1.id; // Start with Tutorial
+
+            renderTabs();
+            loadTab(activeTabId);
+            initResizer();
+            renderShortcuts();
+            initTabDragging();
+        };
+
+        function getNextTabName() {
+            const existingNumbers = tabs.map(t => {
+                const match = t.name.match(/^index(\d+)\.html$/);
+                return match ? parseInt(match[1]) : 0;
+            });
+            let counter = 1;
+            while (existingNumbers.includes(counter)) { counter++; }
+            return `index${counter}.html`;
+        }
+
+        function newTab() {
+            const newName = getNextTabName();
+            const newId = Date.now();
+            tabs.push({ id: newId, name: newName, content: userBoilerplate }); // Use user template
+            switchTab(newId);
+        }
+
+        function renderTabs() {
+            tabsContainer.innerHTML = '';
+            tabs.forEach(tab => {
+                const el = document.createElement('div');
+                el.className = `tab ${tab.id === activeTabId ? 'active' : ''}`;
+                el.draggable = true;
+                el.dataset.id = tab.id;
+
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = tab.name;
+                
+                const closeSpan = document.createElement('span');
+                closeSpan.className = 'close-tab';
+                closeSpan.innerHTML = '×';
+                closeSpan.onclick = (e) => closeTab(e, tab.id);
+
+                el.appendChild(nameSpan);
+                el.appendChild(closeSpan);
+                el.onclick = () => switchTab(tab.id);
+                el.addEventListener('dragstart', handleDragStart);
+                el.addEventListener('dragend', handleDragEnd);
+
+                tabsContainer.appendChild(el);
+            });
+        }
+
+        function initTabDragging() {
+            tabsContainer.addEventListener('dragover', handleDragOver);
+        }
+        function handleDragStart(e) { e.target.classList.add('dragging'); }
+        function handleDragEnd(e) { 
+            e.target.classList.remove('dragging'); 
+            const newOrderIds = Array.from(tabsContainer.children).map(child => parseInt(child.dataset.id));
+            tabs = newOrderIds.map(id => tabs.find(t => t.id === id));
+        }
+        function handleDragOver(e) {
+            e.preventDefault();
+            const draggingItem = document.querySelector('.dragging');
+            if(!draggingItem) return;
+            const siblings = [...tabsContainer.querySelectorAll('.tab:not(.dragging)')];
+            const nextSibling = siblings.find(sibling => e.clientX <= sibling.getBoundingClientRect().left + sibling.offsetWidth / 2);
+            tabsContainer.insertBefore(draggingItem, nextSibling);
+        }
+
+        function switchTab(id) {
+            saveCurrentTab();
+            activeTabId = id;
+            loadTab(id);
+            renderTabs();
+        }
+
+        function closeTab(e, id) {
+            e.stopPropagation();
+            if (tabs.length === 1) return alert("Cannot close the last tab!");
+            const idx = tabs.findIndex(t => t.id === id);
+            tabs = tabs.filter(t => t.id !== id);
+            if (id === activeTabId) {
+                switchTab(tabs[idx > 0 ? idx - 1 : 0].id);
+            } else {
+                renderTabs();
+            }
+        }
+
+        function saveCurrentTab() {
+            const t = tabs.find(t => t.id === activeTabId);
+            if (t) t.content = editor.value;
+        }
+
+        function loadTab(id) {
+            const t = tabs.find(t => t.id === id);
+            if (t) {
+                editor.value = t.content;
+                updateLineNumbers();
+                updatePreview();
+            }
+        }
+
+        function openHelp() { helpModal.style.display = 'flex'; }
+        function closeHelp(e, force) { if (force || e.target === helpModal) helpModal.style.display = 'none'; }
+        
+        function renderShortcuts() {
+            shortcutGrid.innerHTML = '';
+            Object.keys(snippets).sort().forEach(key => {
+                const item = document.createElement('div');
+                item.className = 'shortcut-item';
+                item.textContent = key;
+                item.onclick = () => alert(`Type "${key}" and press Tab!`);
+                shortcutGrid.appendChild(item);
+            });
+        }
+
+        editor.addEventListener('input', () => {
+            saveCurrentTab();
+            updateLineNumbers();
+            updatePreview();
+        });
+
+        editor.addEventListener('keyup', updateCursorStats);
+        editor.addEventListener('click', updateCursorStats);
+        editor.addEventListener('scroll', () => { gutter.scrollTop = editor.scrollTop; });
+
+        editor.addEventListener('keydown', function(e) {
+            const start = this.selectionStart;
+            const end = this.selectionEnd;
+            const val = this.value;
+
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const beforeCursor = val.substring(0, start);
+                const match = beforeCursor.match(/([a-zA-Z0-9!]+)$/);
+                if (match && snippets[match[0]]) {
+                    const snippet = snippets[match[0]];
+                    const textBefore = beforeCursor.substring(0, beforeCursor.length - match[0].length);
+                    const textAfter = val.substring(end);
+                    this.value = textBefore + snippet + textAfter;
+                    let newCursorPos = textBefore.length + snippet.length;
+                    if (snippet.includes('></')) newCursorPos = textBefore.length + snippet.indexOf('></') + 1;
+                    else if (snippet.includes('""')) newCursorPos = textBefore.length + snippet.indexOf('""') + 1;
+                    else if (snippet.includes('\t')) {
+                        this.value = textBefore + snippet.replace('\t', '') + textAfter;
+                        newCursorPos = textBefore.length + snippet.indexOf('\t');
+                    }
+                    this.selectionStart = this.selectionEnd = newCursorPos;
+                    saveCurrentTab();
+                    updatePreview();
+                    return;
+                }
+                document.execCommand('insertText', false, '    ');
+            }
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const lastNewLine = val.lastIndexOf('\n', start - 1);
+                const lineContent = val.substring(lastNewLine + 1, start);
+                const indentation = lineContent.match(/^\s*/)[0];
+                document.execCommand('insertText', false, '\n' + indentation);
+            }
+            const pairs = {'(':')', '{':'}', '[':']', '"':'"', "'":"'"};
+            if (pairs[e.key]) {
+                e.preventDefault();
+                document.execCommand('insertText', false, e.key + pairs[e.key]);
+                this.selectionStart = this.selectionEnd = start + 1;
+            }
+        });
+
+        function updateLineNumbers() {
+            const lines = editor.value.split('\n').length;
+            gutter.innerHTML = Array(lines).fill(0).map((_, i) => i + 1).join('<br>');
+        }
+        function updateCursorStats() {
+            const val = editor.value;
+            const sel = editor.selectionStart;
+            const line = val.substr(0, sel).split('\n').length;
+            const col = sel - val.lastIndexOf('\n', sel - 1);
+            cursorStats.textContent = `Ln ${line}, Col ${col}`;
+        }
+        function updatePreview() {
+            const doc = preview.contentDocument || preview.contentWindow.document;
+            doc.open();
+            doc.write(editor.value);
+            doc.close();
+        }
+        function downloadFile() {
+            const t = tabs.find(t => t.id === activeTabId);
+            const blob = new Blob([editor.value], {type: 'text/html'});
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = t.name;
+            a.click();
+        }
+        function initResizer() {
+            let isResizing = false;
+            resizer.addEventListener('mousedown', () => {
+                isResizing = true;
+                dragOverlay.style.display = 'block';
+                document.body.style.cursor = 'col-resize';
+            });
+            document.addEventListener('mousemove', (e) => {
+                if (!isResizing) return;
+                const containerWidth = document.getElementById('workspace').offsetWidth;
+                const percent = (e.clientX / containerWidth) * 100;
+                if (percent > 10 && percent < 90) editorPane.style.width = percent + '%';
+            });
+            document.addEventListener('mouseup', () => {
+                isResizing = false;
+                dragOverlay.style.display = 'none';
+                document.body.style.cursor = 'default';
+            });
+        }
+    </script>
+</body>
+</html>
